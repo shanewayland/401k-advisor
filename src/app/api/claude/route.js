@@ -19,5 +19,7 @@ export async function POST(request) {
   });
 
   const data = await response.json();
+  console.log("Anthropic status:", response.status);
+  console.log("Anthropic response:", JSON.stringify(data).slice(0, 500));
   return Response.json(data);
 }
