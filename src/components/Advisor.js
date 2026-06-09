@@ -341,12 +341,22 @@ export default function Advisor() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
 
   async function generateRecommendation() {
     setLoading(true); setError(null);
-    const validFunds = funds.filter((f) => f.name || f.ticker);
+
+    // Accept funds where either name OR ticker has a value
+    const validFunds = funds.filter((f) => (f.name && f.name.trim()) || (f.ticker && f.ticker.trim()));
+
+    if (validFunds.length === 0) {
+      setError("Please enter at least one fund name or ticker.");
+      setLoading(false);
+      return;
+    }
+
     const qaSummary = SECTIONS.flatMap((sec) =>
       sec.questions.map((q) => {
         const idx = answers[q.id];
@@ -357,46 +367,55 @@ export default function Advisor() {
     ).join("\n");
 
     try {
-      const tickerFunds = validFunds.filter((f) => f.ticker.trim());
-      let fundDataText = "";
-
-      if (tickerFunds.length > 0) {
-        const lookupData = await callClaude({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          tools: [{ type: "web_search_20250305", name: "web_search" }],
-          messages: [{
-            role: "user",
-            content: `You are a financial data assistant. For each mutual fund ticker below, look up its data and return ONLY a JSON array — no prose, no markdown.\n\nEach object must have: ticker, name, category (e.g. "Large Blend", "Intermediate Core Bond"), expenseRatio (e.g. "0.04%"), objective (one sentence).\n\nTickers: ${tickerFunds.map((f) => f.ticker.trim()).join(", ")}\n\nReturn ONLY the JSON array.`,
-          }],
-        });
-        const rawText = lookupData.content?.filter((b) => b.type === "text").map((b) => b.text).join("") || "";
-        try {
-          const parsed = JSON.parse(rawText.replace(/```json|```/g, "").trim());
-          if (Array.isArray(parsed)) {
-            fundDataText = parsed.map((f) => `- ${f.ticker}: ${f.name} | Category: ${f.category} | Expense Ratio: ${f.expenseRatio} | Objective: ${f.objective}`).join("\n");
-          }
-        } catch { /* fall through */ }
-      }
-
-      const noTickerText = validFunds.filter((f) => !f.ticker.trim()).map((f) => `- ${f.name}`).join("\n");
-      const fullFundContext = [fundDataText, noTickerText].filter(Boolean).join("\n");
+      // Build fund list — ticker-only entries use ticker as the display name
+      const fundLines = validFunds.map((f) => {
+        const display = f.name?.trim() || f.ticker?.trim();
+        const ticker = f.ticker?.trim();
+        return ticker ? `- ${display} (${ticker.toUpperCase()})` : `- ${display}`;
+      }).join("\n");
 
       const allocData = await callClaude({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
+        max_tokens: 1500,
         messages: [{
           role: "user",
-          content: `You are a fiduciary 401(k) investment advisor. Using the verified fund data and risk assessment below, build a specific allocation recommendation.\n\nCLIENT: ${userName || "Plan Participant"}\nRISK SCORE: ${score} / 80\nRISK PROFILE: ${riskProfile.label}\nPROFILE DESCRIPTION: ${riskProfile.description}\n\nCOMPLETED RISK ASSESSMENT:\n${qaSummary}\n\nAVAILABLE PLAN FUNDS:\n${fullFundContext || "No funds provided — give general allocation guidance by asset class"}\n\nUse fund categories and objectives to make an informed allocation. For funds without tickers, infer asset class from the name.\n\nRespond in exactly these four sections:\n\nALLOCATION\nList each fund with percentage. Must sum to 100%. Group by asset class.\n\nRATIONALE\nExplain why this fits the client's risk profile, time horizon, and goals.\n\nCLIENT SUMMARY\n2-3 paragraphs in plain language. No jargon.\n\nCAVEATS\n3-5 specific watch items.`,
+          content: `You are a fiduciary 401(k) investment advisor. Using the fund list and risk assessment below, build a specific allocation recommendation. Use your knowledge of each fund's asset class and risk profile to inform the allocation.
+
+CLIENT: ${userName || "Plan Participant"}
+RISK SCORE: ${score} / 80
+RISK PROFILE: ${riskProfile.label}
+PROFILE DESCRIPTION: ${riskProfile.description}
+
+COMPLETED RISK ASSESSMENT:
+${qaSummary}
+
+AVAILABLE PLAN FUNDS:
+${fundLines}
+
+For each fund, use your knowledge to identify its asset class (US equity, international, bond, money market, target date, etc.) and factor that into the allocation. If a ticker is provided, use it to identify the fund precisely.
+
+Respond in exactly these four sections:
+
+ALLOCATION
+List each fund with its allocation percentage. Percentages must sum to 100%. Group by asset class.
+
+RATIONALE
+Explain specifically why this allocation fits the client's risk profile, time horizon, income reliance, and stated goals.
+
+CLIENT SUMMARY
+2-3 paragraphs in plain language. No jargon.
+
+CAVEATS
+3-5 specific watch items for this allocation.`,
         }],
       });
 
       const allocText = allocData.content?.map((b) => b.text || "").join("") || "";
-      if (!allocText) throw new Error();
+      if (!allocText) throw new Error("Empty response from API");
       setResult(allocText);
       setStep("results");
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err) {
+      setError(`Error: ${err.message || "Something went wrong. Please try again."}`);
     } finally {
       setLoading(false);
     }
