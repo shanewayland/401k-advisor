@@ -342,7 +342,10 @@ export default function Advisor() {
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    const data = await res.json();
+    // Surface any API-level error
+    if (data.error) throw new Error(`API: ${data.error.message || JSON.stringify(data.error)}`);
+    return data;
   }
 
   async function generateRecommendation() {
@@ -375,7 +378,7 @@ export default function Advisor() {
       }).join("\n");
 
       const allocData = await callClaude({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-5",
         max_tokens: 1500,
         messages: [{
           role: "user",
