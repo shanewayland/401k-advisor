@@ -261,10 +261,16 @@ ${fundList.length > 0 ? `
   ${fundList.map((f) => `<tr><td>${f.name || f.ticker || "—"}</td><td style="font-family:monospace;font-size:8pt">${f.ticker || "—"}</td></tr>`).join("")}
 </table>` : ""}
 <div class="sec-title">Allocation Recommendation</div>
-${Object.entries(sections).map(([title, lines]) => lines.length === 0 ? "" : `
-  <div class="result-sec-title">${title}</div>
-  ${lines.map((l) => { const isBullet = l.startsWith("-") || /^\d+\./.test(l); const text = l.replace(/^[-•]\s*/,"").replace(/^\d+\.\s*/,""); return `<div class="result-line ${isBullet?"bullet":""}">${text}</div>`; }).join("")}
-`).join("")}
+${result.split("\n").map((line) => {
+  const t = line.trim();
+  if (!t) return "<div style='height:6px'></div>";
+  if (/^(ALLOCATION|RATIONALE|CLIENT SUMMARY|CAVEATS)/.test(t.toUpperCase())) {
+    return `<div class="result-sec-title">${t}</div>`;
+  }
+  const isBullet = t.startsWith("-") || /^\d+\./.test(t);
+  const text = t.replace(/^[-•]\s*/,"").replace(/^\d+\.\s*/,"").replace(/\*\*/g,"");
+  return `<div class="result-line ${isBullet?"bullet":""}">${text}</div>`;
+}).join("")}
 <div class="disclosure-box">
   <div class="disclosure-title">Important — Please Read</div>
   <p>This tool is provided for educational and informational purposes only. It is not financial advice and does not constitute a recommendation to buy or sell any security. The allocation guidance generated here is based solely on your answers to the risk questionnaire and the fund names you entered. It does not account for your complete financial picture, tax situation, other investments, or personal circumstances.</p>
@@ -370,12 +376,45 @@ export default function Advisor() {
     ).join("\n");
 
     try {
-      // Build fund list — ticker-only entries use ticker as the display name
-      const fundLines = validFunds.map((f) => {
-        const display = f.name?.trim() || f.ticker?.trim();
-        const ticker = f.ticker?.trim();
-        return ticker ? `- ${display} (${ticker.toUpperCase()})` : `- ${display}`;
-      }).join("\n");
+      // Build fund list — look up names for ticker-only entries
+      const fundLines = await Promise.all(validFunds.map(async (f) => {
+        const name = f.name?.trim();
+        const ticker = f.ticker?.trim().toUpperCase();
+        if (ticker && !name) {
+          // Look up fund name from ticker via Claude's knowledge
+          try {
+            const lookup = await callClaude({
+              model: "claude-sonnet-4-5",
+              max_tokens: 100,
+              messages: [{ role: "user", content: `What is the full name of the mutual fund with ticker ${ticker}? Reply with just the fund name, nothing else.` }],
+            });
+            const lookedUpName = lookup.content?.map((b) => b.text || "").join("").trim();
+            return `- ${lookedUpName || ticker} (${ticker})`;
+          } catch {
+            return `- ${ticker}`;
+          }
+        }
+        return ticker ? `- ${name} (${ticker})` : `- ${name}`;
+      }));
+
+      // Also update funds state with resolved names for PDF display
+      const resolvedFunds = await Promise.all(validFunds.map(async (f) => {
+        const name = f.name?.trim();
+        const ticker = f.ticker?.trim().toUpperCase();
+        if (ticker && !name) {
+          try {
+            const lookup = await callClaude({
+              model: "claude-sonnet-4-5",
+              max_tokens: 100,
+              messages: [{ role: "user", content: `What is the full name of the mutual fund with ticker ${ticker}? Reply with just the fund name, nothing else.` }],
+            });
+            const lookedUpName = lookup.content?.map((b) => b.text || "").join("").trim();
+            return { name: lookedUpName || ticker, ticker };
+          } catch { return { name: ticker, ticker }; }
+        }
+        return f;
+      }));
+      setFunds(resolvedFunds);
 
       const allocData = await callClaude({
         model: "claude-sonnet-4-5",
@@ -393,7 +432,7 @@ COMPLETED RISK ASSESSMENT:
 ${qaSummary}
 
 AVAILABLE PLAN FUNDS:
-${fundLines}
+${fundLines.join("\n")}
 
 For each fund, use your knowledge to identify its asset class (US equity, international, bond, money market, target date, etc.) and factor that into the allocation. If a ticker is provided, use it to identify the fund precisely.
 
@@ -429,7 +468,8 @@ CAVEATS
     const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
     const html = buildPdfHtml({ userName, riskProfile, score, answers, funds, result, date });
     const iframe = iframeRef.current;
-    iframe.srcdoc = html;
+    // Set a title so browser uses it as the suggested PDF filename
+    iframe.srcdoc = html.replace("<title>401(k) Allocation Guide</title>", `<title>401k Allocation Guide - ${userName || "Client"}</title>`);
     iframe.onload = () => setTimeout(() => { iframe.contentWindow.print(); setPdfLoading(false); }, 400);
   }
 
@@ -472,7 +512,7 @@ CAVEATS
         )}
 
         {step === "questions" && currentQuestion && (
-          <div style={S.card}>
+          <div style={S.card} key={`${sectionIdx}-${questionIdx}`}>
             <div style={S.sectionLabel}>{currentSection.title}</div>
             <div style={S.progressRow}>
               <span style={S.progressText}>Question {currentGlobalIdx + 1} of {totalQuestions}</span>
