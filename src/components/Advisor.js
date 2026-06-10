@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 
 const SECTIONS = [
   {
@@ -298,7 +298,6 @@ export default function Advisor() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
-  const iframeRef = useRef(null);
 
   const score = calcScore(answers);
   const riskProfile = getRiskProfile(score);
@@ -471,12 +470,30 @@ CAVEATS
 
   function handlePdf() {
     setPdfLoading(true);
-    const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-    const html = buildPdfHtml({ userName, riskProfile, score, answers, funds, result, date });
-    const iframe = iframeRef.current;
-    // Set a title so browser uses it as the suggested PDF filename
-    iframe.srcdoc = html.replace("<title>401(k) Allocation Guide</title>", `<title>401k Allocation Guide - ${userName || "Client"}</title>`);
-    iframe.onload = () => setTimeout(() => { iframe.contentWindow.print(); setPdfLoading(false); }, 400);
+    try {
+      const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      const html = buildPdfHtml({ userName, riskProfile, score, answers, funds, result, date });
+      const fileName = `401k-Allocation-Guide${userName ? "-" + userName.replace(/\s+/g, "-") : ""}.html`;
+
+      // Create a downloadable blob — works on all mobile browsers
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // On iOS Safari, blob download opens in browser — show instruction
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        alert("Your report will open in a new tab. Tap the Share button (box with arrow) → Print or Save to Files to save as PDF.");
+      }
+    } finally {
+      setPdfLoading(false);
+    }
   }
 
   function reset() {
@@ -486,7 +503,6 @@ CAVEATS
 
   return (
     <div style={S.shell}>
-      <iframe ref={iframeRef} style={{ position:"fixed",top:-9999,left:-9999,width:1,height:1,border:"none" }} title="pdf" />
 
       <header style={S.header}>
         <div style={S.headerLeft}>
@@ -601,7 +617,6 @@ CAVEATS
             </div>
             <div style={S.navRow}>
               <button style={S.btnBack} onClick={reset}>Start Over</button>
-              <button style={S.btnBack} onClick={() => navigator.clipboard.writeText(result)}>📋 Copy</button>
             </div>
           </div>
         )}
