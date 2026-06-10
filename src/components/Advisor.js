@@ -503,6 +503,7 @@ CAVEATS
 
   return (
     <div style={S.shell}>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
       <header style={S.header}>
         <div style={S.headerLeft}>
@@ -586,10 +587,16 @@ CAVEATS
             ))}
             <button style={{ ...S.btnBack, marginTop:8 }} onClick={addFund}>+ Add Fund</button>
             {error && <div style={S.errorBox}>{error}</div>}
+            {loading && (
+              <div style={S.loadingBox}>
+                <span style={S.spinner}>⟳</span>
+                <span>Analyzing your funds and building your allocation… this may take 20–30 seconds.</span>
+              </div>
+            )}
             <div style={S.navRow}>
               <button style={S.btnBack} onClick={() => { setStep("questions"); setSectionIdx(2); setQuestionIdx(5); }}>← Back</button>
-              <button style={{ ...S.btnPrimary, margin:0, width:"auto", paddingLeft:28, paddingRight:28, opacity: loading ? 0.6 : 1 }} disabled={loading} onClick={generateRecommendation}>
-                {loading ? "Looking up funds & generating…" : "Generate Recommendation →"}
+              <button style={{ ...S.btnPrimary, margin:0, width:"auto", paddingLeft:28, paddingRight:28, opacity: loading ? 0.6 : 1, display:"flex", alignItems:"center", gap:8 }} disabled={loading} onClick={generateRecommendation}>
+                {loading ? <><span style={S.spinnerBtn}>⟳</span> Working…</> : "Generate Recommendation →"}
               </button>
             </div>
           </div>
@@ -668,6 +675,9 @@ const S = {
   fundCard: { display:"flex", flexDirection:"column", gap:6, marginBottom:12, padding:"10px 12px", background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:10 },
   fundCardRow: { display:"flex", alignItems:"center", gap:8 },
   removeBtn: { background:"none", border:"none", color:"#9ca3af", cursor:"pointer", fontSize:15, padding:0, flexShrink:0 },
+  loadingBox: { display:"flex", alignItems:"center", gap:10, background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:8, padding:"12px 16px", fontSize:13, color:"#1e40af", marginTop:12, marginBottom:4 },
+  spinner: { fontSize:20, display:"inline-block", animation:"spin 1s linear infinite", flexShrink:0 },
+  spinnerBtn: { fontSize:16, display:"inline-block", animation:"spin 1s linear infinite" },
   errorBox: { background:"#fef2f2", border:"1px solid #fecaca", color:"#dc2626", borderRadius:8, padding:"10px 14px", fontSize:13, marginTop:12 },
   resultsTop: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 },
   resultBody: { background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:"20px 24px", maxHeight:420, overflowY:"auto" },
